@@ -19,7 +19,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
-parser.add_argument('--epochs', type=int, default=1,
+parser.add_argument('--epochs', type=int, default=10,
                     help='Number of epochs to train.')
 parser.add_argument('--batch-size', type=int, default=8,
                     help='Number of samples per batch.')
@@ -33,7 +33,7 @@ parser.add_argument('--temp', type=float, default=0.5,
                     help='Temperature for Gumbel softmax.')
 parser.add_argument('--encoder', type=str, default='mlp',
                     help='Type of path encoder model (mlp or cnn).')
-parser.add_argument('--decoder', type=str, default='rnn',
+parser.add_argument('--decoder', type=str, default='mlp',
                     help='Type of decoder model (mlp, rnn, or sim).')
 parser.add_argument('--no-factor', action='store_true', default=False,
                     help='Disables factor graph model.')
@@ -50,7 +50,7 @@ parser.add_argument('--load-folder', type=str, default='',
                          'Leave empty to train from scratch')
 parser.add_argument('--edge-types', type=int, default=4,
                     help='The number of edge types to infer.')
-parser.add_argument('--workers', type=int, default=12,
+parser.add_argument('--workers', type=int, default=0,
                     help='workers .')    
 parser.add_argument('--dims', type=int, default=2,
                     help='The number of input dimensions (position + velocity).')
@@ -62,10 +62,7 @@ parser.add_argument('--num-atoms', type=int, default=100,
                     help='Number of atoms in simulation.')                                   
 parser.add_argument('--stocks', type=int, default=100,
                     help='The number of input dimensions (position + velocity).')                                           
-tt = 10
-train_idx=tt
-val_idx=tt
-parser.add_argument('--timesteps', type=int, default=tt,
+parser.add_argument('--timesteps', type=int, default=10,
                     help='The number of time steps per sample.')
 parser.add_argument('--prediction-steps', type=int, default=5, metavar='N',
                     help='Num steps to predict before re-using teacher forcing.')
@@ -89,13 +86,14 @@ from collections import defaultdict
 def nested_dict():
     return defaultdict(nested_dict)
 
-logs = nested_dict()
+logs = defaultdict(dict)
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
 args.factor = not args.no_factor
 print(args)
-
+train_idx=args.timesteps
+val_idx=args.timesteps
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 if args.cuda:
@@ -260,7 +258,7 @@ def train(epoch, best_val_loss):
 
     logs['train']['pred'] = np.concatenate(preds)
     logs['train']['truth'] = np.concatenate(tars)
-    logs['train'] = eds
+    logs['edges']['train'] = eds
     nll_val = []
     acc_val = []
     kl_val = []
@@ -307,7 +305,7 @@ def train(epoch, best_val_loss):
 
     logs['val']['pred'] = np.concatenate(preds)
     logs['val']['truth'] = np.concatenate(tars)
-    logs['val'] = eds
+    logs['edges']['val'] = eds
     pickle.dump(logs, open(os.path.join(save_folder,'logs.pkl'),"wb" ))
     # pd.DataFrame(logs).to_pickle(os.path.join(save_folder,'logs.pickle'))
     print('Epoch: {:04d}'.format(epoch),
@@ -384,7 +382,7 @@ def test2(epoch, best_val_loss):
 
     logs['test']['pred'] = np.concatenate(preds)
     logs['test']['truth'] = np.concatenate(tars)
-    logs['test'] = eds
+    logs['edges']['test'] = eds
     pickle.dump(logs, open(os.path.join(save_folder,'logs.pkl'),"wb" ))
     # pd.DataFrame(logs).to_pickle(os.path.join(save_folder,'logs.pickle'))
     print('Epoch: {:04d}'.format(epoch),
