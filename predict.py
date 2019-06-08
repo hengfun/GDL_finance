@@ -19,15 +19,15 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--no-cuda', action='store_true', default=False,
                     help='Disables CUDA training.')
 parser.add_argument('--seed', type=int, default=42, help='Random seed.')
-parser.add_argument('--epochs', type=int, default=10,
+parser.add_argument('--epochs', type=int, default=3,
                     help='Number of epochs to train.')
 parser.add_argument('--batch-size', type=int, default=8,
                     help='Number of samples per batch.')
 parser.add_argument('--lr', type=float, default=0.001,
                     help='Initial learning rate.')
-parser.add_argument('--encoder-hidden', type=int, default=256//4,
+parser.add_argument('--encoder-hidden', type=int, default=256//128,
                     help='Number of hidden units.')
-parser.add_argument('--decoder-hidden', type=int, default=256//4,
+parser.add_argument('--decoder-hidden', type=int, default=256//128,
                     help='Number of hidden units.')                    
 parser.add_argument('--temp', type=float, default=0.5,
                     help='Temperature for Gumbel softmax.')
@@ -50,7 +50,7 @@ parser.add_argument('--load-folder', type=str, default='',
                          'Leave empty to train from scratch')
 parser.add_argument('--edge-types', type=int, default=4,
                     help='The number of edge types to infer.')
-parser.add_argument('--workers', type=int, default=0,
+parser.add_argument('--workers', type=int, default=12,
                     help='workers .')    
 parser.add_argument('--dims', type=int, default=2,
                     help='The number of input dimensions (position + velocity).')
@@ -86,7 +86,7 @@ from collections import defaultdict
 def nested_dict():
     return defaultdict(nested_dict)
 
-logs = defaultdict(dict)
+
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
@@ -196,7 +196,7 @@ if args.cuda:
 rel_rec = Variable(rel_rec)
 rel_send = Variable(rel_send)
 fc_out = nn.Linear(args.dims*args.stocks,args.n_out).cuda()
-def train(epoch, best_val_loss):
+def train(logs,epoch, best_val_loss):
     t = time.time()
     nll_train = []
     acc_train = []
@@ -259,6 +259,7 @@ def train(epoch, best_val_loss):
     logs['train']['pred'] = np.concatenate(preds)
     logs['train']['truth'] = np.concatenate(tars)
     logs['edges']['train'] = eds
+
     nll_val = []
     acc_val = []
     kl_val = []
@@ -302,11 +303,10 @@ def train(epoch, best_val_loss):
         kl_val.append(loss_kl.item())
         preds.append(output.detach().cpu().numpy().flatten())
         tars.append(target.detach().cpu().numpy().flatten())
-
     logs['val']['pred'] = np.concatenate(preds)
     logs['val']['truth'] = np.concatenate(tars)
     logs['edges']['val'] = eds
-    pickle.dump(logs, open(os.path.join(save_folder,'logs.pkl'),"wb" ))
+    # pickle.dump(logs, open(os.path.join(save_folder,'logs.pkl'),"wb" ))
     # pd.DataFrame(logs).to_pickle(os.path.join(save_folder,'logs.pickle'))
     print('Epoch: {:04d}'.format(epoch),
           'nll_train: {:.10f}'.format(np.mean(nll_train)),
@@ -333,9 +333,9 @@ def train(epoch, best_val_loss):
               'acc_val: {:.10f}'.format(np.mean(acc_val)),
               'time: {:.4f}s'.format(time.time() - t), file=log)
         log.flush()
-    return np.mean(nll_val)
+    return np.mean(nll_val), logs
 
-def test2(epoch, best_val_loss):
+def test2(logs,epoch, best_val_loss):
     t = time.time()
     encoder.eval()
     decoder.eval()
@@ -383,8 +383,7 @@ def test2(epoch, best_val_loss):
     logs['test']['pred'] = np.concatenate(preds)
     logs['test']['truth'] = np.concatenate(tars)
     logs['edges']['test'] = eds
-    pickle.dump(logs, open(os.path.join(save_folder,'logs.pkl'),"wb" ))
-    # pd.DataFrame(logs).to_pickle(os.path.join(save_folder,'logs.pickle'))
+    pd.DataFrame(logs).to_pickle(os.path.join(save_folder,'logs.pickle'))
     print('Epoch: {:04d}'.format(epoch),
 
           'nll_val: {:.10f}'.format(np.mean(nll_val)),
@@ -408,8 +407,9 @@ def test2(epoch, best_val_loss):
 t_total = time.time()
 best_val_loss = np.inf
 best_epoch = 0
+logs = defaultdict(dict)
 for epoch in range(args.epochs):
-    val_loss = train(epoch, best_val_loss)
+    val_loss,logs = train(logs,epoch, best_val_loss)
     if val_loss < best_val_loss:
         best_val_loss = val_loss
         best_epoch = epoch
@@ -421,7 +421,7 @@ if args.save_folder:
     # print(save_folder)
     # log.close()
 
-test2(epoch,best_val_loss)
+test2(logs,epoch,best_val_loss)
 if log is not None:
     print(save_folder)
     log.close()
